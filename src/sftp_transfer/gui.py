@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import os
+from configparser import ConfigParser
 from pathlib import Path
 
 try:
@@ -40,21 +41,22 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("SFTP Transfer")
         self.resize(980, 680)
         self.process: QProcess | None = None
+        self.config_path = Path(__file__).resolve().parents[2] / "config.ini"
 
         self.command_combo = QComboBox()
         self.command_combo.addItems(["sync", "upload", "download"])
 
-        self.host_edit = QLineEdit("172.16.9.185")
+        self.host_edit = QLineEdit()
         self.port_spin = QSpinBox()
         self.port_spin.setRange(1, 65535)
         self.port_spin.setValue(22)
-        self.username_edit = QLineEdit("zhangcheng")
+        self.username_edit = QLineEdit()
         self.password_edit = QLineEdit()
         self.password_edit.setEchoMode(QLineEdit.Password)
         self.key_edit = QLineEdit()
 
-        self.local_edit = QLineEdit("D:\\Data")
-        self.remote_edit = QLineEdit("/home/zhangcheng/code/2D-Image-Segmentation/data")
+        self.local_edit = QLineEdit()
+        self.remote_edit = QLineEdit()
         self.dry_run_check = QCheckBox("Dry run")
         self.delete_check = QCheckBox("Delete remote-only files")
         self.delete_check.setToolTip("Only applies to upload/sync. Run dry-run first before deleting.")
@@ -75,6 +77,7 @@ class MainWindow(QMainWindow):
 
         self._build_layout()
         self._connect_signals()
+        self._load_config()
         self._update_preview()
 
     def _build_layout(self) -> None:
@@ -216,6 +219,7 @@ class MainWindow(QMainWindow):
             return
         if not self._validate():
             return
+        self._save_config()
 
         self.process = QProcess(self)
         self.process.setProgram(sys.executable)
@@ -299,6 +303,48 @@ class MainWindow(QMainWindow):
         path = QFileDialog.getExistingDirectory(self, "Select local folder")
         if path:
             self.local_edit.setText(path)
+
+    def _load_config(self) -> None:
+        if not self.config_path.exists():
+            return
+        parser = ConfigParser()
+        parser.read(self.config_path, encoding="utf-8")
+        self.command_combo.setCurrentText(parser.get("options", "command", fallback="sync"))
+        self.host_edit.setText(parser.get("connection", "host", fallback=""))
+        self.port_spin.setValue(parser.getint("connection", "port", fallback=22))
+        self.username_edit.setText(parser.get("connection", "username", fallback=""))
+        self.password_edit.setText(parser.get("connection", "password", fallback=""))
+        self.key_edit.setText(parser.get("connection", "private_key", fallback=""))
+        self.local_edit.setText(parser.get("paths", "local", fallback=""))
+        self.remote_edit.setText(parser.get("paths", "remote", fallback=""))
+        self.dry_run_check.setChecked(parser.getboolean("options", "dry_run", fallback=False))
+        self.delete_check.setChecked(parser.getboolean("options", "delete", fallback=False))
+        self.no_host_key_check.setChecked(parser.getboolean("options", "no_host_key_check", fallback=False))
+        self.verbose_check.setChecked(parser.getboolean("options", "verbose", fallback=False))
+        self._update_delete_enabled()
+
+    def _save_config(self) -> None:
+        parser = ConfigParser()
+        parser["connection"] = {
+            "host": self.host_edit.text().strip(),
+            "port": str(self.port_spin.value()),
+            "username": self.username_edit.text().strip(),
+            "password": self.password_edit.text(),
+            "private_key": self.key_edit.text().strip(),
+        }
+        parser["paths"] = {
+            "local": self.local_edit.text().strip(),
+            "remote": self.remote_edit.text().strip(),
+        }
+        parser["options"] = {
+            "command": self.command_combo.currentText(),
+            "dry_run": str(self.dry_run_check.isChecked()).lower(),
+            "delete": str(self.delete_check.isChecked()).lower(),
+            "no_host_key_check": str(self.no_host_key_check.isChecked()).lower(),
+            "verbose": str(self.verbose_check.isChecked()).lower(),
+        }
+        with self.config_path.open("w", encoding="utf-8") as file:
+            parser.write(file)
 
 
 def main() -> int:

@@ -2,7 +2,7 @@
 
 LAN file transfer and incremental synchronization tool based on Python and Paramiko.
 
-It is designed for moving many OCT image files between a Windows workstation and a Linux/Windows SSH server.
+It is designed for reliably moving large numbers of files between a Windows workstation and a Linux/Windows SSH server in a secure and repeatable way. Typical use cases include research data transfer, system backups, media archives, engineering files, and general-purpose document synchronization.
 
 ## Requirements
 
@@ -56,7 +56,7 @@ Or double-click:
 run_sftp_transfer_gui.bat
 ```
 
-The GUI supports button-based preview, upload, download, sync, sync with remote-only delete, local directory browsing, remote SFTP directory browsing, stop, and live logs.
+The GUI supports upload, download, sync, dry-run preview, remote-only delete for upload/sync, stop, and live logs.
 
 GUI connection values are loaded from and saved to local `config.ini`.
 `config.ini` is ignored by git and should not be committed. Use `config.example.ini` as a template.
@@ -87,10 +87,10 @@ Make sure the target account can read/write the remote directory.
 ```bash
 python -m sftp_transfer upload \
   --host 192.168.1.200 \
-  --username oct \
+  --username user \
   --password 123456 \
-  --local D:\Data\OCT \
-  --remote /data/OCT
+  --local D:\Data\LocalFolder \
+  --remote /data/files
 ```
 
 If no password or key is given, the tool prompts interactively without echo.
@@ -100,10 +100,10 @@ If no password or key is given, the tool prompts interactively without echo.
 ```bash
 python -m sftp_transfer upload \
   --host 192.168.1.200 \
-  --username oct \
+  --username user \
   --key C:\Users\user\.ssh\id_rsa \
-  --local D:\Data\OCT \
-  --remote /data/OCT
+  --local D:\Data\LocalFolder \
+  --remote /data/files
 ```
 
 ## Commands
@@ -111,25 +111,25 @@ python -m sftp_transfer upload \
 Upload local changes:
 
 ```bash
-python -m sftp_transfer upload --host 192.168.1.200 --username oct --local D:\Data\OCT --remote /data/OCT
+python -m sftp_transfer upload --host 192.168.1.200 --username user --local D:\Data\LocalFolder --remote /data/files
 ```
 
 Download remote changes:
 
 ```bash
-python -m sftp_transfer download --host 192.168.1.200 --username oct --remote /data/OCT --local D:\Data\OCT
+python -m sftp_transfer download --host 192.168.1.200 --username user --remote /data/files --local D:\Data\LocalFolder
 ```
 
 Sync is incremental upload by default. It never deletes remote files:
 
 ```bash
-python -m sftp_transfer sync --host 192.168.1.200 --username oct --local D:\Data\OCT --remote /data/OCT
+python -m sftp_transfer sync --host 192.168.1.200 --username user --local D:\Data\LocalFolder --remote /data/files
 ```
 
 Mirror local files to the remote directory and delete remote files that no longer exist locally:
 
 ```bash
-python -m sftp_transfer sync --host 192.168.1.200 --username oct --local D:\Data\OCT --remote /data/OCT --delete
+python -m sftp_transfer sync --host 192.168.1.200 --username user --local D:\Data\LocalFolder --remote /data/files --delete
 ```
 
 Run with `--dry-run --delete` first to review the delete list before changing remote files.
@@ -139,9 +139,9 @@ Run with `--dry-run --delete` first to review the delete list before changing re
 ```bash
 python -m sftp_transfer sync \
   --host 192.168.1.200 \
-  --username oct \
-  --local D:\Data\OCT \
-  --remote /data/OCT \
+  --username user \
+  --local D:\Data\LocalFolder \
+  --remote /data/files \
   --dry-run
 ```
 
@@ -162,17 +162,17 @@ Copy `config.example.json` to `config.json`.
 {
   "host": "192.168.1.200",
   "port": 22,
-  "username": "oct",
+  "username": "user",
   "password": "",
   "private_key": "C:/Users/user/.ssh/id_rsa",
-  "remote_root": "/data/OCT"
+  "remote_root": "/data/files"
 }
 ```
 
 CLI arguments override config values:
 
 ```bash
-python -m sftp_transfer --config config.json sync --local D:\Data\OCT
+python -m sftp_transfer --config config.json sync --local D:\Data\LocalFolder
 ```
 
 Avoid saving passwords in config files. Prefer interactive input, `--password-stdin`, or SSH keys.

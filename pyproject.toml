@@ -16,10 +16,13 @@ dependencies = [
 test = [
     "pytest>=8.0",
 ]
+gui = [
+    "PyQt5>=5.15",
+]
 
 [project.scripts]
 sftp-transfer = "sftp_transfer.cli:main"
+sftp-transfer-gui = "sftp_transfer.gui:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-

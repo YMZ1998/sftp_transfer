@@ -37,9 +37,32 @@ Editable examples are included:
 sync_example.bat
 upload_example.bat
 download_example.bat
+run_sftp_transfer_gui.bat
 ```
 
 Open these files, edit `HOST`, `USERNAME`, `LOCAL`, and `REMOTE`, then double-click or run them from `cmd`.
+
+## GUI
+
+Start the PyQt desktop interface:
+
+```bat
+python run_gui.py
+```
+
+Or double-click:
+
+```text
+run_sftp_transfer_gui.bat
+```
+
+The GUI supports upload, download, sync, dry-run preview, remote-only delete for upload/sync, stop, and live logs.
+
+If PyQt5 is not installed:
+
+```bash
+pip install -e .[gui]
+```
 
 For tests:
 

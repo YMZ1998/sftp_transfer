@@ -198,6 +198,7 @@ class SyncManager:
                 stats.failed += 1
                 failed.append(plan.relative_path)
                 self.logger.error("FAILED %s: %s", plan.relative_path, error)
+        progress.close()
         self._print_summary(stats, failed)
         return stats
 
@@ -237,6 +238,7 @@ class SyncManager:
                 stats.failed += 1
                 failed.append(plan.relative_path)
                 self.logger.error("FAILED %s: %s", plan.relative_path, error)
+        progress.close()
         self._print_summary(stats, failed)
         return stats
 

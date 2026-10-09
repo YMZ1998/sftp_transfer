@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import time
+from shutil import get_terminal_size
 
 from .utils import format_bytes, format_eta
 
@@ -58,10 +59,23 @@ class ProgressPrinter:
         self._file_done = self._file_total
         self._print(force=True)
 
-    def _bar(self, ratio: float, width: int = 20) -> str:
+    def close(self) -> None:
+        """Finish the progress line."""
+
+        sys.stderr.write("\n")
+        sys.stderr.flush()
+
+    def _bar(self, ratio: float, width: int = 18) -> str:
         ratio = min(1.0, max(0.0, ratio))
         filled = int(ratio * width)
-        return "[" + "█" * filled + "░" * (width - filled) + "]"
+        return "[" + "#" * filled + "-" * (width - filled) + "]"
+
+    def _shorten(self, text: str, max_length: int) -> str:
+        if len(text) <= max_length:
+            return text
+        if max_length <= 3:
+            return text[:max_length]
+        return "..." + text[-(max_length - 3) :]
 
     def _print(self, force: bool = False) -> None:
         now = time.time()
@@ -74,16 +88,15 @@ class ProgressPrinter:
         if speed > 0 and self.total_bytes:
             remaining = max(0.0, (self.total_bytes - self.bytes_done) / speed)
 
-        file_ratio = self._file_done / max(1, self._file_total)
         overall_ratio = self.bytes_done / self.total_bytes if self.total_bytes else 0.0
-        text = (
-            f"\r{self.verb}: {self._file_name}\n"
-            f"{self._bar(file_ratio)} {file_ratio * 100:5.1f}% "
-            f"{format_bytes(self._file_done)} / {format_bytes(self._file_total)}\n"
-            f"Overall {self._bar(overall_ratio)} {overall_ratio * 100:5.1f}% "
-            f"Files {self.files_done}/{self.total_files} "
-            f"Transferred {format_bytes(self.bytes_done)} / {format_bytes(self.total_bytes)} "
-            f"Speed {format_bytes(speed)}/s ETA {format_eta(remaining)}\n"
+        prefix = (
+            f"\r{self.verb} {self._bar(overall_ratio)} {overall_ratio * 100:5.1f}% "
+            f"{self.files_done}/{self.total_files} "
+            f"{format_bytes(self.bytes_done)}/{format_bytes(self.total_bytes)} "
+            f"{format_bytes(speed)}/s ETA {format_eta(remaining)} "
         )
-        sys.stderr.write("\033[2K" + text)
+        width = max(60, get_terminal_size((120, 20)).columns)
+        file_width = max(12, width - len(prefix) - 1)
+        text = prefix + self._shorten(self._file_name, file_width)
+        sys.stderr.write("\r" + text.ljust(width - 1))
         sys.stderr.flush()

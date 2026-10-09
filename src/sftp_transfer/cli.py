@@ -57,6 +57,7 @@ def configure_logging(verbose: bool) -> None:
         format="%(asctime)s %(levelname)s %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
+    logging.getLogger("paramiko").setLevel(logging.DEBUG if verbose else logging.WARNING)
 
 
 def validate_config(config: AppConfig) -> str | None:

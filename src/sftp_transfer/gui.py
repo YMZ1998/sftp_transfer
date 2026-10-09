@@ -88,8 +88,9 @@ class MainWindow(QMainWindow):
         self.clear_button = QPushButton("Clear Log")
         self.local_model = QFileSystemModel(self)
         self.local_model.setFilter(QDir.AllEntries | QDir.NoDotAndDotDot | QDir.AllDirs)
-        self.local_model.setRootPath(QDir.rootPath())
+        self.local_model.setRootPath("")
         self.local_tree = None
+        self.locate_local_button = QPushButton("Locate Local Path")
         self.remote_tree = QTreeWidget()
         self.remote_client: SftpClient | None = None
         self.connect_remote_button = QPushButton("Connect Remote")
@@ -136,6 +137,10 @@ class MainWindow(QMainWindow):
         browser_splitter = QSplitter(Qt.Horizontal)
         local_browser = QGroupBox("Local Browser")
         local_layout = QVBoxLayout(local_browser)
+        local_toolbar = QHBoxLayout()
+        local_toolbar.addWidget(self.locate_local_button)
+        local_toolbar.addStretch(1)
+        local_layout.addLayout(local_toolbar)
         self.local_tree = self._build_local_tree()
         local_layout.addWidget(self.local_tree)
 
@@ -203,13 +208,14 @@ class MainWindow(QMainWindow):
         self.start_button.clicked.connect(self._start)
         self.stop_button.clicked.connect(self._stop)
         self.clear_button.clicked.connect(self.output.clear)
+        self.locate_local_button.clicked.connect(lambda: self._show_local_path(self.local_edit.text().strip()))
         self.connect_remote_button.clicked.connect(self._connect_remote)
         self.disconnect_remote_button.clicked.connect(self._disconnect_remote)
 
     def _build_local_tree(self):
         tree = QTreeView()
         tree.setModel(self.local_model)
-        tree.setRootIndex(self.local_model.index(QDir.rootPath()))
+        tree.setRootIndex(self.local_model.index(QDir.drives()[0].absolutePath() if len(QDir.drives()) == 1 else ""))
         tree.setSortingEnabled(True)
         tree.sortByColumn(0, Qt.AscendingOrder)
         tree.clicked.connect(self._local_item_selected)
@@ -409,10 +415,27 @@ class MainWindow(QMainWindow):
     def _show_local_path(self, path: str) -> None:
         if self.local_tree is None:
             return
-        index = self.local_model.index(path)
+        if not path:
+            return
+        normalized = str(Path(path))
+        if len(normalized) == 2 and normalized[1] == ":":
+            normalized += "\\"
+        index = self.local_model.index(normalized)
         if index.isValid():
+            parent = index.parent()
+            while parent.isValid():
+                self.local_tree.expand(parent)
+                parent = parent.parent()
             self.local_tree.setCurrentIndex(index)
             self.local_tree.scrollTo(index)
+        else:
+            drive = Path(normalized).drive
+            if drive:
+                drive_index = self.local_model.index(drive + "\\")
+                if drive_index.isValid():
+                    self.local_tree.setCurrentIndex(drive_index)
+                    self.local_tree.expand(drive_index)
+                    self.local_tree.scrollTo(drive_index)
 
     def _local_item_selected(self, index) -> None:  # noqa: ANN001
         path = self.local_model.filePath(index)

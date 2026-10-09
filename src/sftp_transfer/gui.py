@@ -6,15 +6,17 @@ import sys
 import os
 from configparser import ConfigParser
 from pathlib import Path
+from stat import S_ISDIR, S_ISREG
 
 try:
-    from PyQt5.QtCore import QProcess, QProcessEnvironment, Qt
+    from PyQt5.QtCore import QDir, QProcess, QProcessEnvironment, Qt
     from PyQt5.QtGui import QTextCursor
     from PyQt5.QtWidgets import (
         QApplication,
         QCheckBox,
         QComboBox,
         QFileDialog,
+        QFileSystemModel,
         QFormLayout,
         QGridLayout,
         QGroupBox,
@@ -26,11 +28,21 @@ try:
         QPushButton,
         QPlainTextEdit,
         QSpinBox,
+        QSplitter,
+        QTreeView,
+        QTreeWidget,
+        QTreeWidgetItem,
         QVBoxLayout,
         QWidget,
     )
 except ImportError as error:  # pragma: no cover - exercised manually.
     raise SystemExit("PyQt5 is required. Install with: pip install PyQt5") from error
+
+from .sftp_client import SftpClient, SftpConnectionError
+
+REMOTE_PATH_ROLE = Qt.UserRole
+REMOTE_LOADED_ROLE = Qt.UserRole + 1
+REMOTE_IS_DIR_ROLE = Qt.UserRole + 2
 
 
 class MainWindow(QMainWindow):
@@ -74,6 +86,15 @@ class MainWindow(QMainWindow):
         self.stop_button = QPushButton("Stop")
         self.stop_button.setEnabled(False)
         self.clear_button = QPushButton("Clear Log")
+        self.local_model = QFileSystemModel(self)
+        self.local_model.setFilter(QDir.AllEntries | QDir.NoDotAndDotDot | QDir.AllDirs)
+        self.local_model.setRootPath(QDir.rootPath())
+        self.local_tree = None
+        self.remote_tree = QTreeWidget()
+        self.remote_client: SftpClient | None = None
+        self.connect_remote_button = QPushButton("Connect Remote")
+        self.disconnect_remote_button = QPushButton("Disconnect")
+        self.disconnect_remote_button.setEnabled(False)
 
         self._build_layout()
         self._connect_signals()
@@ -112,6 +133,28 @@ class MainWindow(QMainWindow):
         path_grid.addWidget(QLabel("Remote"), 1, 0)
         path_grid.addWidget(self.remote_edit, 1, 1, 1, 3)
 
+        browser_splitter = QSplitter(Qt.Horizontal)
+        local_browser = QGroupBox("Local Browser")
+        local_layout = QVBoxLayout(local_browser)
+        self.local_tree = self._build_local_tree()
+        local_layout.addWidget(self.local_tree)
+
+        remote_browser = QGroupBox("Remote Browser")
+        remote_layout = QVBoxLayout(remote_browser)
+        remote_actions = QHBoxLayout()
+        remote_actions.addWidget(self.connect_remote_button)
+        remote_actions.addWidget(self.disconnect_remote_button)
+        remote_actions.addStretch(1)
+        remote_layout.addLayout(remote_actions)
+        self.remote_tree.setHeaderLabels(["Name", "Size"])
+        self.remote_tree.itemExpanded.connect(self._remote_item_expanded)
+        self.remote_tree.itemSelectionChanged.connect(self._remote_selection_changed)
+        remote_layout.addWidget(self.remote_tree)
+
+        browser_splitter.addWidget(local_browser)
+        browser_splitter.addWidget(remote_browser)
+        browser_splitter.setSizes([480, 480])
+
         options = QGroupBox("Options")
         option_layout = QHBoxLayout(options)
         option_layout.addWidget(self.dry_run_check)
@@ -128,6 +171,7 @@ class MainWindow(QMainWindow):
 
         main_layout.addWidget(connection)
         main_layout.addWidget(paths)
+        main_layout.addWidget(browser_splitter, 2)
         main_layout.addWidget(options)
         main_layout.addWidget(QLabel("Command preview"))
         main_layout.addWidget(self.command_preview)
@@ -159,6 +203,19 @@ class MainWindow(QMainWindow):
         self.start_button.clicked.connect(self._start)
         self.stop_button.clicked.connect(self._stop)
         self.clear_button.clicked.connect(self.output.clear)
+        self.connect_remote_button.clicked.connect(self._connect_remote)
+        self.disconnect_remote_button.clicked.connect(self._disconnect_remote)
+
+    def _build_local_tree(self):
+        tree = QTreeView()
+        tree.setModel(self.local_model)
+        tree.setRootIndex(self.local_model.index(QDir.rootPath()))
+        tree.setSortingEnabled(True)
+        tree.sortByColumn(0, Qt.AscendingOrder)
+        tree.clicked.connect(self._local_item_selected)
+        for column in range(1, self.local_model.columnCount()):
+            tree.hideColumn(column)
+        return tree
 
     def _build_args(self) -> list[str]:
         args = [
@@ -303,6 +360,7 @@ class MainWindow(QMainWindow):
         path = QFileDialog.getExistingDirectory(self, "Select local folder")
         if path:
             self.local_edit.setText(path)
+            self._show_local_path(path)
 
     def _load_config(self) -> None:
         if not self.config_path.exists():
@@ -321,6 +379,8 @@ class MainWindow(QMainWindow):
         self.delete_check.setChecked(parser.getboolean("options", "delete", fallback=False))
         self.no_host_key_check.setChecked(parser.getboolean("options", "no_host_key_check", fallback=False))
         self.verbose_check.setChecked(parser.getboolean("options", "verbose", fallback=False))
+        if self.local_edit.text().strip():
+            self._show_local_path(self.local_edit.text().strip())
         self._update_delete_enabled()
 
     def _save_config(self) -> None:
@@ -345,6 +405,119 @@ class MainWindow(QMainWindow):
         }
         with self.config_path.open("w", encoding="utf-8") as file:
             parser.write(file)
+
+    def _show_local_path(self, path: str) -> None:
+        if self.local_tree is None:
+            return
+        index = self.local_model.index(path)
+        if index.isValid():
+            self.local_tree.setCurrentIndex(index)
+            self.local_tree.scrollTo(index)
+
+    def _local_item_selected(self, index) -> None:  # noqa: ANN001
+        path = self.local_model.filePath(index)
+        if path:
+            self.local_edit.setText(path)
+
+    def _connect_remote(self) -> None:
+        if not self.host_edit.text().strip() or not self.username_edit.text().strip():
+            QMessageBox.warning(self, "Missing fields", "Please fill Host and Username first.")
+            return
+        if not self.password_edit.text() and not self.key_edit.text().strip():
+            QMessageBox.warning(self, "Missing fields", "Please fill Password or Private key first.")
+            return
+        self._disconnect_remote()
+        self.remote_tree.clear()
+        self.output.appendPlainText("Connecting remote browser...")
+        client = SftpClient(
+            host=self.host_edit.text().strip(),
+            username=self.username_edit.text().strip(),
+            port=self.port_spin.value(),
+            password=self.password_edit.text() or None,
+            private_key=Path(self.key_edit.text()).expanduser() if self.key_edit.text().strip() else None,
+            no_host_key_check=self.no_host_key_check.isChecked(),
+        )
+        try:
+            client.connect()
+            self.remote_client = client
+            self.connect_remote_button.setEnabled(False)
+            self.disconnect_remote_button.setEnabled(True)
+            root_path = self.remote_edit.text().strip() or "."
+            self._populate_remote_root(root_path)
+            self.output.appendPlainText("Remote browser connected.")
+        except SftpConnectionError as error:
+            client.close()
+            QMessageBox.warning(self, "Remote connection failed", str(error))
+            self.output.appendPlainText(f"Remote browser connection failed: {error}")
+
+    def _disconnect_remote(self) -> None:
+        if self.remote_client is not None:
+            self.remote_client.close()
+            self.remote_client = None
+        self.remote_tree.clear()
+        self.connect_remote_button.setEnabled(True)
+        self.disconnect_remote_button.setEnabled(False)
+
+    def _populate_remote_root(self, remote_path: str) -> None:
+        assert self.remote_client is not None
+        root = self._make_remote_item(remote_path, remote_path, is_dir=True)
+        self.remote_tree.addTopLevelItem(root)
+        self._load_remote_children(root)
+        root.setExpanded(True)
+        self.remote_tree.setCurrentItem(root)
+
+    def _make_remote_item(self, name: str, remote_path: str, is_dir: bool, size: int | None = None) -> QTreeWidgetItem:
+        label = name.rstrip("/").rsplit("/", 1)[-1] or name
+        item = QTreeWidgetItem([label, "" if is_dir or size is None else str(size)])
+        item.setData(0, REMOTE_PATH_ROLE, remote_path)
+        item.setData(0, REMOTE_LOADED_ROLE, False)
+        item.setData(0, REMOTE_IS_DIR_ROLE, is_dir)
+        if is_dir:
+            item.addChild(QTreeWidgetItem(["Loading...", ""]))
+        return item
+
+    def _remote_item_expanded(self, item: QTreeWidgetItem) -> None:
+        if item.data(0, REMOTE_IS_DIR_ROLE):
+            self._load_remote_children(item)
+
+    def _remote_selection_changed(self) -> None:
+        items = self.remote_tree.selectedItems()
+        if not items:
+            return
+        remote_path = items[0].data(0, REMOTE_PATH_ROLE)
+        if remote_path:
+            self.remote_edit.setText(remote_path)
+
+    def _load_remote_children(self, item: QTreeWidgetItem) -> None:
+        if self.remote_client is None or item.data(0, REMOTE_LOADED_ROLE):
+            return
+        remote_path = item.data(0, REMOTE_PATH_ROLE)
+        item.takeChildren()
+        try:
+            entries = sorted(
+                self.remote_client.listdir_attr(remote_path),
+                key=lambda entry: (not S_ISDIR(entry.st_mode), entry.filename.lower()),
+            )
+        except OSError as error:
+            item.addChild(QTreeWidgetItem([f"Error: {error}", ""]))
+            item.setData(0, REMOTE_LOADED_ROLE, True)
+            return
+        for entry in entries:
+            child_path = self._join_remote(remote_path, entry.filename)
+            if S_ISDIR(entry.st_mode):
+                item.addChild(self._make_remote_item(entry.filename, child_path, is_dir=True))
+            elif S_ISREG(entry.st_mode):
+                item.addChild(self._make_remote_item(entry.filename, child_path, is_dir=False, size=entry.st_size))
+        item.setData(0, REMOTE_LOADED_ROLE, True)
+
+    def _join_remote(self, root: str, name: str) -> str:
+        if root in {"", "."}:
+            return name
+        return root.rstrip("/") + "/" + name
+
+    def closeEvent(self, event) -> None:  # noqa: ANN001
+        self._disconnect_remote()
+        super().closeEvent(event)
 
 
 def main() -> int:

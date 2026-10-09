@@ -17,6 +17,30 @@ cd sftp_transfer
 pip install -e .
 ```
 
+## Direct Launch Scripts
+
+You can run the tool without remembering the module name:
+
+```bash
+python run.py --help
+```
+
+On Windows:
+
+```bat
+run_sftp_transfer.bat --help
+```
+
+Editable examples are included:
+
+```text
+sync_example.bat
+upload_example.bat
+download_example.bat
+```
+
+Open these files, edit `HOST`, `USERNAME`, `LOCAL`, and `REMOTE`, then double-click or run them from `cmd`.
+
 For tests:
 
 ```bash
@@ -144,4 +168,3 @@ python -m sftp_transfer --verbose sync ...
 The first version uses one SFTP connection and throttled terminal progress output.
 
 It is suitable for many small files and tens of GB on a LAN. The code is structured so future versions can add `--workers 4` without rewriting sync planning.
-

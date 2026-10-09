@@ -65,10 +65,11 @@ class ProgressPrinter:
         sys.stderr.write("\n")
         sys.stderr.flush()
 
-    def _bar(self, ratio: float, width: int = 18) -> str:
+    def _bar(self, ratio: float, width: int = 100) -> str:
         ratio = min(1.0, max(0.0, ratio))
         filled = int(ratio * width)
-        return "[" + "#" * filled + "-" * (width - filled) + "]"
+        # return "[" + "#" * filled + "-" * (width - filled) + "]"
+        return "[" + "█" * filled + "░" * (width - filled) + "]"
 
     def _shorten(self, text: str, max_length: int) -> str:
         if len(text) <= max_length:

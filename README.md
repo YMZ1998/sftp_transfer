@@ -56,7 +56,7 @@ Or double-click:
 run_sftp_transfer_gui.bat
 ```
 
-The GUI supports upload, download, sync, local directory browsing, remote SFTP directory browsing, dry-run preview, remote-only delete for upload/sync, stop, and live logs.
+The GUI supports button-based preview, upload, download, sync, sync with remote-only delete, local directory browsing, remote SFTP directory browsing, stop, and live logs.
 
 GUI connection values are loaded from and saved to local `config.ini`.
 `config.ini` is ignored by git and should not be committed. Use `config.example.ini` as a template.

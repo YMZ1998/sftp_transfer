@@ -82,7 +82,13 @@ class MainWindow(QMainWindow):
         self.output.setReadOnly(True)
         self.output.setLineWrapMode(QPlainTextEdit.NoWrap)
 
+        self.preview_button = QPushButton("Preview")
+        self.upload_button = QPushButton("Upload")
+        self.download_button = QPushButton("Download")
+        self.sync_button = QPushButton("Sync")
+        self.delete_sync_button = QPushButton("Sync + Delete Remote Extras")
         self.start_button = QPushButton("Start")
+        self.start_button.setVisible(False)
         self.stop_button = QPushButton("Stop")
         self.stop_button.setEnabled(False)
         self.clear_button = QPushButton("Clear Log")
@@ -169,7 +175,11 @@ class MainWindow(QMainWindow):
         option_layout.addStretch(1)
 
         actions = QHBoxLayout()
-        actions.addWidget(self.start_button)
+        actions.addWidget(self.preview_button)
+        actions.addWidget(self.upload_button)
+        actions.addWidget(self.download_button)
+        actions.addWidget(self.sync_button)
+        actions.addWidget(self.delete_sync_button)
         actions.addWidget(self.stop_button)
         actions.addWidget(self.clear_button)
         actions.addStretch(1)
@@ -206,6 +216,11 @@ class MainWindow(QMainWindow):
 
         self.command_combo.currentTextChanged.connect(self._update_delete_enabled)
         self.start_button.clicked.connect(self._start)
+        self.preview_button.clicked.connect(self._preview)
+        self.upload_button.clicked.connect(lambda: self._start_operation("upload"))
+        self.download_button.clicked.connect(lambda: self._start_operation("download"))
+        self.sync_button.clicked.connect(lambda: self._start_operation("sync"))
+        self.delete_sync_button.clicked.connect(self._sync_delete)
         self.stop_button.clicked.connect(self._stop)
         self.clear_button.clicked.connect(self.output.clear)
         self.locate_local_button.clicked.connect(lambda: self._show_local_path(self.local_edit.text().strip()))
@@ -251,7 +266,7 @@ class MainWindow(QMainWindow):
         args.extend(["--remote", self.remote_edit.text().strip()])
         return args
 
-    def _validate(self) -> bool:
+    def _validate(self, require_delete_confirm: bool | None = None) -> bool:
         missing = []
         if not self.host_edit.text().strip():
             missing.append("Host")
@@ -266,7 +281,8 @@ class MainWindow(QMainWindow):
         if missing:
             QMessageBox.warning(self, "Missing fields", "Please fill: " + ", ".join(missing))
             return False
-        if self.delete_check.isChecked() and not self.dry_run_check.isChecked():
+        should_confirm_delete = self.delete_check.isChecked() if require_delete_confirm is None else require_delete_confirm
+        if should_confirm_delete and not self.dry_run_check.isChecked():
             answer = QMessageBox.question(
                 self,
                 "Confirm delete",
@@ -276,6 +292,29 @@ class MainWindow(QMainWindow):
             )
             return answer == QMessageBox.Yes
         return True
+
+    def _preview(self) -> None:
+        self._start_operation(self.command_combo.currentText(), dry_run=True, delete=self.delete_check.isChecked())
+
+    def _sync_delete(self) -> None:
+        self._start_operation("sync", dry_run=False, delete=True)
+
+    def _start_operation(
+        self,
+        command: str,
+        dry_run: bool | None = None,
+        delete: bool | None = None,
+    ) -> None:
+        if self.process is not None:
+            return
+        self.command_combo.setCurrentText(command)
+        if dry_run is not None:
+            self.dry_run_check.setChecked(dry_run)
+        if delete is not None:
+            self.delete_check.setChecked(delete)
+        if command == "download":
+            self.delete_check.setChecked(False)
+        self._start()
 
     def _start(self) -> None:
         if self.process is not None:
@@ -299,7 +338,7 @@ class MainWindow(QMainWindow):
         self.process.errorOccurred.connect(self._process_error)
 
         self.output.appendPlainText("$ " + self.command_preview.text())
-        self.start_button.setEnabled(False)
+        self._set_transfer_buttons_enabled(False)
         self.stop_button.setEnabled(True)
         self.process.start()
         if self.process.waitForStarted(3000):
@@ -320,7 +359,7 @@ class MainWindow(QMainWindow):
         self._read_output()
         self.output.appendPlainText(f"\nFinished with exit code {exit_code}")
         self.process = None
-        self.start_button.setEnabled(True)
+        self._set_transfer_buttons_enabled(True)
         self.stop_button.setEnabled(False)
 
     def _process_error(self, error: QProcess.ProcessError) -> None:
@@ -351,6 +390,14 @@ class MainWindow(QMainWindow):
     def _update_delete_enabled(self) -> None:
         self.delete_check.setEnabled(self.command_combo.currentText() in {"sync", "upload"})
         self._update_preview()
+
+    def _set_transfer_buttons_enabled(self, enabled: bool) -> None:
+        self.preview_button.setEnabled(enabled)
+        self.upload_button.setEnabled(enabled)
+        self.download_button.setEnabled(enabled)
+        self.sync_button.setEnabled(enabled)
+        self.delete_sync_button.setEnabled(enabled)
+        self.start_button.setEnabled(enabled)
 
     def _browse_key(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Select private key")

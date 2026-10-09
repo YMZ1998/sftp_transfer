@@ -16,10 +16,9 @@ EXIT_ARGUMENT_ERROR = 2
 EXIT_CONNECTION_ERROR = 3
 
 
-def build_parser() -> argparse.ArgumentParser:
-    """Build the top-level argument parser."""
+def add_common_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add connection and behavior options to a parser."""
 
-    parser = argparse.ArgumentParser(prog="sftp-transfer")
     parser.add_argument("--config", type=Path, help="Path to config.json")
     parser.add_argument("--host")
     parser.add_argument("--port", type=int, default=None)
@@ -33,9 +32,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mtime-tolerance", type=float, default=2.0)
     parser.add_argument("--verbose", action="store_true")
 
+
+def build_parser() -> argparse.ArgumentParser:
+    """Build the top-level argument parser."""
+
+    parser = argparse.ArgumentParser(prog="sftp-transfer")
+    add_common_arguments(parser)
+
     subparsers = parser.add_subparsers(dest="command", required=True)
     for command in ("upload", "download", "sync"):
-        sub = subparsers.add_parser(command)
+        sub = subparsers.add_parser(command, argument_default=argparse.SUPPRESS)
+        add_common_arguments(sub)
         sub.add_argument("--local")
         sub.add_argument("--remote")
     return parser
@@ -124,4 +131,3 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     return run_command(args)
-

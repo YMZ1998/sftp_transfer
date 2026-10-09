@@ -11,10 +11,17 @@ from .utils import format_bytes, format_eta
 class ProgressPrinter:
     """Render file and overall progress without flooding the terminal."""
 
-    def __init__(self, total_files: int, total_bytes: int, interval: float = 0.5) -> None:
+    def __init__(
+        self,
+        total_files: int,
+        total_bytes: int,
+        interval: float = 0.5,
+        verb: str = "Uploading",
+    ) -> None:
         self.total_files = max(1, total_files)
         self.total_bytes = max(0, total_bytes)
         self.interval = interval
+        self.verb = verb
         self.files_done = 0
         self.bytes_done = 0
         self._last_print = 0.0
@@ -70,7 +77,7 @@ class ProgressPrinter:
         file_ratio = self._file_done / max(1, self._file_total)
         overall_ratio = self.bytes_done / self.total_bytes if self.total_bytes else 0.0
         text = (
-            f"\rUploading: {self._file_name}\n"
+            f"\r{self.verb}: {self._file_name}\n"
             f"{self._bar(file_ratio)} {file_ratio * 100:5.1f}% "
             f"{format_bytes(self._file_done)} / {format_bytes(self._file_total)}\n"
             f"Overall {self._bar(overall_ratio)} {overall_ratio * 100:5.1f}% "
@@ -80,4 +87,3 @@ class ProgressPrinter:
         )
         sys.stderr.write("\033[2K" + text)
         sys.stderr.flush()
-

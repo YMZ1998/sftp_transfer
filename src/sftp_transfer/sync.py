@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
+from stat import S_ISREG
 from typing import Iterable
 
 from .models import FileInfo, RemoteFileInfo, TransferPlan, TransferStats
@@ -77,6 +78,8 @@ class SyncManager:
     ) -> TransferStats:
         """Upload changed files from local_root to remote_root."""
 
+        if local_root.is_file():
+            return self._upload_single_file(local_root, remote_root, dry_run)
         local_files = FileScanner().scan(local_root)
         remote_files = self._scan_remote(remote_root)
         plans = self.plan_upload(local_files, remote_files)
@@ -90,6 +93,8 @@ class SyncManager:
     ) -> TransferStats:
         """Download changed files from remote_root to local_root."""
 
+        if self._remote_is_file(remote_root):
+            return self._download_single_file(remote_root, local_root, dry_run)
         local_files = FileScanner().scan(local_root) if local_root.exists() else []
         remote_files = self._scan_remote(remote_root)
         plans = self.plan_download(remote_files, local_files)
@@ -104,6 +109,49 @@ class SyncManager:
         if not self.client.exists(remote_root):
             return []
         return RemoteScanner(self.client).scan(remote_root)
+
+    def _remote_is_file(self, remote_path: str) -> bool:
+        try:
+            return S_ISREG(self.client.stat(remote_path).st_mode)
+        except OSError:
+            return False
+
+    def _upload_single_file(
+        self,
+        local_path: Path,
+        remote_path: str,
+        dry_run: bool,
+    ) -> TransferStats:
+        stat = local_path.stat()
+        target = remote_path
+        if remote_path.endswith("/"):
+            target = join_remote_path(remote_path, local_path.name)
+        plan = TransferPlan(
+            "new",
+            local_path.name,
+            FileInfo(local_path.name, local_path, stat.st_size, stat.st_mtime),
+            None,
+            "single file",
+        )
+        return self._execute_upload_plans([plan], target.rsplit("/", 1)[0] or "/", dry_run)
+
+    def _download_single_file(
+        self,
+        remote_path: str,
+        local_path: Path,
+        dry_run: bool,
+    ) -> TransferStats:
+        stat = self.client.stat(remote_path)
+        relative = remote_path.rstrip("/").rsplit("/", 1)[-1]
+        target = local_path / relative if local_path.exists() and local_path.is_dir() else local_path
+        plan = TransferPlan(
+            "download",
+            target.name,
+            None,
+            RemoteFileInfo(target.name, remote_path, stat.st_size, float(stat.st_mtime)),
+            "single file",
+        )
+        return self._execute_download_plans([plan], target.parent, dry_run)
 
     def _print_dry_run(self, plans: list[TransferPlan]) -> TransferStats:
         stats = TransferStats()
@@ -127,6 +175,7 @@ class SyncManager:
         progress = ProgressPrinter(
             total_files=len(todo),
             total_bytes=sum(plan.local.size for plan in todo if plan.local),
+            verb="Uploading",
         )
         failed: list[str] = []
         for plan in todo:
@@ -165,6 +214,7 @@ class SyncManager:
         progress = ProgressPrinter(
             total_files=len(todo),
             total_bytes=sum(plan.remote.size for plan in todo if plan.remote),
+            verb="Downloading",
         )
         failed: list[str] = []
         for plan in todo:
@@ -209,4 +259,3 @@ class SyncManager:
             print("Failed files:")
             for item in failed:
                 print(f"  {item}")
-

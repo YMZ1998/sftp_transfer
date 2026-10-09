@@ -30,6 +30,7 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--max-retries", type=int, default=3)
     parser.add_argument("--mtime-tolerance", type=float, default=2.0)
+    parser.add_argument("--delete", action="store_true", help="Delete remote files missing locally during upload/sync")
     parser.add_argument("--verbose", action="store_true")
 
 
@@ -115,11 +116,11 @@ def run_command(args) -> int:  # noqa: ANN001
             mtime_tolerance=config.mtime_tolerance,
         )
         if args.command == "upload":
-            stats = manager.upload(config.local, config.remote, dry_run=args.dry_run)
+            stats = manager.upload(config.local, config.remote, dry_run=args.dry_run, delete=config.delete)
         elif args.command == "download":
             stats = manager.download(config.remote, config.local, dry_run=args.dry_run)
         else:
-            stats = manager.sync(config.local, config.remote, dry_run=args.dry_run)
+            stats = manager.sync(config.local, config.remote, dry_run=args.dry_run, delete=config.delete)
     finally:
         client.close()
 

@@ -21,6 +21,7 @@ class AppConfig:
     no_host_key_check: bool = False
     max_retries: int = 3
     mtime_tolerance: float = 2.0
+    delete: bool = False
 
 
 def load_config(path: Path | None) -> dict:
@@ -53,5 +54,5 @@ def resolve_config(args) -> AppConfig:  # noqa: ANN001
         no_host_key_check=args.no_host_key_check,
         max_retries=args.max_retries,
         mtime_tolerance=args.mtime_tolerance,
+        delete=args.delete or bool(raw.get("delete", False)),
     )
-

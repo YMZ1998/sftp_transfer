@@ -166,6 +166,11 @@ class SftpClient:
         local_path.parent.mkdir(parents=True, exist_ok=True)
         self.sftp.get(remote_path, str(local_path), callback=callback)
 
+    def remove_file(self, remote_path: str) -> None:
+        """Delete one remote file."""
+
+        self.sftp.remove(remote_path)
+
 
 def prompt_password_if_needed(
     password: str | None,
@@ -181,4 +186,3 @@ def prompt_password_if_needed(
     if private_key:
         return None
     return getpass.getpass("Password: ")
-

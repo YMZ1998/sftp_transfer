@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-Action = Literal["new", "update", "skip", "download"]
+Action = Literal["new", "update", "skip", "download", "delete"]
 
 
 @dataclass(frozen=True)
@@ -47,5 +47,5 @@ class TransferStats:
     transferred: int = 0
     skipped: int = 0
     failed: int = 0
+    deleted: int = 0
     bytes_transferred: int = 0
-

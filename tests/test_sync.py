@@ -8,6 +8,7 @@ class FakeClient:
     def __init__(self):
         self.uploads = []
         self.downloads = []
+        self.deleted = []
         self.failures_left = 0
 
     def exists(self, remote_path: str) -> bool:
@@ -25,6 +26,9 @@ class FakeClient:
         self.downloads.append((remote_path, local_path))
         if callback:
             callback(10, 10)
+
+    def remove_file(self, remote_path: str):
+        self.deleted.append(remote_path)
 
 
 def local(relative: str, size: int = 10, mtime: float = 100.0) -> FileInfo:
@@ -65,6 +69,17 @@ def test_plan_upload_does_not_delete_remote_only_file():
     assert [plan.relative_path for plan in plans] == ["same.png"]
 
 
+def test_plan_upload_delete_remote_only_file_when_enabled():
+    manager = SyncManager(FakeClient())
+    plans = manager.plan_upload(
+        [local("same.png")],
+        [remote("same.png"), remote("remote-only.png")],
+        delete=True,
+    )
+    actions = {plan.relative_path: plan.action for plan in plans}
+    assert actions == {"same.png": "skip", "remote-only.png": "delete"}
+
+
 def test_dry_run_does_not_upload(capsys):
     client = FakeClient()
     manager = SyncManager(client)
@@ -88,3 +103,11 @@ def test_retry_eventually_uploads():
     assert stats.transferred == 1
     assert client.uploads[0][1] == "/data/OCT/new.png"
 
+
+def test_execute_upload_plans_deletes_remote_only_file():
+    client = FakeClient()
+    manager = SyncManager(client)
+    plan = manager.plan_upload([], [remote("old.png")], delete=True)[0]
+    stats = manager._execute_upload_plans([plan], "/data/OCT", dry_run=False)
+    assert stats.deleted == 1
+    assert client.deleted == ["/data/OCT/old.png"]

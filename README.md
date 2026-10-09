@@ -100,6 +100,14 @@ Sync is incremental upload by default. It never deletes remote files:
 python -m sftp_transfer sync --host 192.168.1.200 --username oct --local D:\Data\OCT --remote /data/OCT
 ```
 
+Mirror local files to the remote directory and delete remote files that no longer exist locally:
+
+```bash
+python -m sftp_transfer sync --host 192.168.1.200 --username oct --local D:\Data\OCT --remote /data/OCT --delete
+```
+
+Run with `--dry-run --delete` first to review the delete list before changing remote files.
+
 ## Dry Run
 
 ```bash
@@ -117,6 +125,7 @@ Example output:
 NEW      01/image001.png
 UPDATE   01/image002.png
 SKIP     01/image003.png
+DELETE   01/removed.png
 ```
 
 ## Config File

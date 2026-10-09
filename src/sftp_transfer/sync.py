@@ -32,12 +32,15 @@ class SyncManager:
         self,
         local_files: Iterable[FileInfo],
         remote_files: Iterable[RemoteFileInfo],
+        delete: bool = False,
     ) -> list[TransferPlan]:
         """Plan local-to-remote incremental upload."""
 
         remote_map = {item.relative_path: item for item in remote_files}
+        local_map = {}
         plans: list[TransferPlan] = []
         for local in sorted(local_files, key=lambda item: item.relative_path):
+            local_map[local.relative_path] = local
             remote = remote_map.get(local.relative_path)
             if remote is None:
                 plans.append(TransferPlan("new", local.relative_path, local, None, "missing remote"))
@@ -47,6 +50,10 @@ class SyncManager:
                 plans.append(TransferPlan("skip", local.relative_path, local, remote, "same size and mtime"))
             else:
                 plans.append(TransferPlan("update", local.relative_path, local, remote, "mtime differs"))
+        if delete:
+            for remote in sorted(remote_files, key=lambda item: item.relative_path):
+                if remote.relative_path not in local_map:
+                    plans.append(TransferPlan("delete", remote.relative_path, None, remote, "missing local"))
         return plans
 
     def plan_download(
@@ -75,6 +82,7 @@ class SyncManager:
         local_root: Path,
         remote_root: str,
         dry_run: bool = False,
+        delete: bool = False,
     ) -> TransferStats:
         """Upload changed files from local_root to remote_root."""
 
@@ -82,7 +90,7 @@ class SyncManager:
             return self._upload_single_file(local_root, remote_root, dry_run)
         local_files = FileScanner().scan(local_root)
         remote_files = self._scan_remote(remote_root)
-        plans = self.plan_upload(local_files, remote_files)
+        plans = self.plan_upload(local_files, remote_files, delete=delete)
         return self._execute_upload_plans(plans, remote_root, dry_run)
 
     def download(
@@ -100,10 +108,16 @@ class SyncManager:
         plans = self.plan_download(remote_files, local_files)
         return self._execute_download_plans(plans, local_root, dry_run)
 
-    def sync(self, local_root: Path, remote_root: str, dry_run: bool = False) -> TransferStats:
+    def sync(
+        self,
+        local_root: Path,
+        remote_root: str,
+        dry_run: bool = False,
+        delete: bool = False,
+    ) -> TransferStats:
         """Default sync: incremental upload without deleting remote files."""
 
-        return self.upload(local_root, remote_root, dry_run=dry_run)
+        return self.upload(local_root, remote_root, dry_run=dry_run, delete=delete)
 
     def _scan_remote(self, remote_root: str) -> list[RemoteFileInfo]:
         if not self.client.exists(remote_root):
@@ -160,6 +174,8 @@ class SyncManager:
             print(f"{label:<8} {plan.relative_path}")
             if plan.action == "skip":
                 stats.skipped += 1
+            elif plan.action == "delete":
+                stats.deleted += 1
         return stats
 
     def _execute_upload_plans(
@@ -171,6 +187,7 @@ class SyncManager:
         if dry_run:
             return self._print_dry_run(plans)
         todo = [plan for plan in plans if plan.action in {"new", "update"}]
+        deletions = [plan for plan in plans if plan.action == "delete"]
         stats = TransferStats(skipped=sum(1 for plan in plans if plan.action == "skip"))
         progress = ProgressPrinter(
             total_files=len(todo),
@@ -199,6 +216,7 @@ class SyncManager:
                 failed.append(plan.relative_path)
                 self.logger.error("FAILED %s: %s", plan.relative_path, error)
         progress.close()
+        self._execute_delete_plans(deletions, stats, failed)
         self._print_summary(stats, failed)
         return stats
 
@@ -253,9 +271,27 @@ class SyncManager:
                 self.logger.warning("Transfer failed: %s. Retry %s/%s...", relative_path, attempt, self.max_retries)
                 time.sleep(min(2 ** (attempt - 1), 5))
 
+    def _execute_delete_plans(
+        self,
+        plans: list[TransferPlan],
+        stats: TransferStats,
+        failed: list[str],
+    ) -> None:
+        for plan in plans:
+            assert plan.remote is not None
+            try:
+                self._retry(lambda: self.client.remove_file(plan.remote.remote_path), plan.relative_path)
+                stats.deleted += 1
+                self.logger.info("Deleted remote file: %s", plan.remote.remote_path)
+            except Exception as error:
+                stats.failed += 1
+                failed.append(plan.relative_path)
+                self.logger.error("FAILED delete %s: %s", plan.relative_path, error)
+
     def _print_summary(self, stats: TransferStats, failed: list[str]) -> None:
         print(f"Transferred: {stats.transferred}")
         print(f"Skipped:     {stats.skipped}")
+        print(f"Deleted:     {stats.deleted}")
         print(f"Failed:      {stats.failed}")
         if failed:
             print("Failed files:")

@@ -23,6 +23,7 @@ def namespace(**overrides):
         "verbose": False,
         "command": "sync",
         "dry_run": True,
+        "delete": False,
     }
     values.update(overrides)
     return argparse.Namespace(**values)
@@ -57,4 +58,3 @@ def test_cli_overrides_config(tmp_path):
 def test_missing_required_argument_returns_argument_error():
     code = run_command(namespace(host=None, username="oct", local=".", remote="/data/OCT"))
     assert code == EXIT_ARGUMENT_ERROR
-
